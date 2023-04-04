@@ -1,4 +1,4 @@
-# ESP32_lazy_grid_clock
+# ESP32 lazy grid clock
 My version of lazy grid clock
 ![my clock](IMG_4421.jpg)
 

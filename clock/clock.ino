@@ -23,8 +23,8 @@ NTPClient timeClient(ntpUDP, NTPHOST, 0, 60000);
 #endif AUTODST
 
 
-const char* ssid       = "***REMOVED***";
-const char* password   = "***REMOVED***";
+const char* ssid       = "XXXXX";
+const char* password   = "XXXX";
 
 const uint8_t digitYPosition = 0;
   #define LED_PWR_LIMIT 500

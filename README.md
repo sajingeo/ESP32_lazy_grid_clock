@@ -6,7 +6,7 @@ All credits to https://www.instructables.com/Lazy-Mini-Grid/
 
 This works on a ESP32
 - No buttons
-- connects once on boot to sync time from NTC and disconnects
+- connects once on boot to sync time from NTC and disconnects (and once a day to sync with pool.ntp)
 
 
 

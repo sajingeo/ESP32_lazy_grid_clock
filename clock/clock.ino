@@ -4,9 +4,11 @@
 #include <FastLED.h>
 #include <TimeLib.h>
 #include <WiFiUdp.h>
+#include <EEPROM.h>
 
 #define NTPHOST "pool.ntp.org"
 #define AUTODST
+#define NODEMCU
 #include <NTPClient.h>
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, NTPHOST, 0, 60000);
@@ -130,6 +132,8 @@ void setup()
   }
   Serial.println(" CONNECTED");
 
+  EEPROM.begin(512);
+
 
 
   // FastLED.addLeds<WS2811, LED_PIN, GRB>(leds, LED_COUNT).setCorrection(TypicalLEDStrip).setTemperature(DirectSunlight).setDither(1);
@@ -151,6 +155,9 @@ void setup()
   FastLED.show();
 
   paletteSwitcher();
+  brightnessSwitcher();
+  colorModeSwitcher();
+  displayModeSwitcher();
 
   timeClient.update();
   time_t timeNTP = timeClient.getEpochTime();
@@ -185,16 +192,39 @@ void loop()
     displayTime(now());                              // 2A - output rtcTime to the led array..
     lastSecondDisplayed = second(sysTime);
 
-    if ( second() % 20 == 0 ) {
-        printTime();
+    syncHelper();
+
     }
 
+    if(Serial.available())
+    {
+      String command = Serial.readStringUntil('\n');
+      if(command == "p")
+      {
+        paletteSwitcher();
+      }
+      if(command == "d")
+      {
+        displayModeSwitcher();
+      }
+      if(command == "b")
+      {
+        brightnessSwitcher();
+      }
+      if(command == "c")
+      {
+        colorModeSwitcher();
+      }
     }
 
     colorizeOutput(colorMode);                           // 1C, 2C, 3C...colorize the data inside the led array right now...
     if ( millis() - lastRefresh >= refreshDelay ) {
         FastLED.show();
         lastRefresh = millis();
+    }
+
+    EVERY_N_SECONDS(10){
+      printTime();      
     }
 }
 
@@ -458,28 +488,65 @@ void colorizeOutput(uint8_t mode) {
 }
 
 void paletteSwitcher() {
-  static uint8_t currentIndex = 0;
+/* As the name suggests this takes care of switching palettes. When adding palettes, make sure paletteCount increases
+  accordingly.  A few examples of gradients/solid colors by using RGB values or HTML Color Codes  below               */
+    static uint8_t paletteCount = 6;
+    static uint8_t currentIndex = 0;
+    if ( clockStatus == 1 ) {                                                 // Clock is starting up, so load selected palette from eeprom...
+        uint8_t tmp = EEPROM.read(0);
+        if ( tmp >= 0 && tmp < paletteCount ) {
+            currentIndex = tmp;                                                   // 255 from eeprom would mean there's nothing been written yet, so checking range...
+        } else {
+            currentIndex = 0;                                                     // ...and default to 0 if returned value from eeprom is not 0 - 6
+        }
+#ifdef DEBUG
+        Serial.print(F("paletteSwitcher(): loaded EEPROM value "));
+        Serial.println(tmp);
+#endif
+    }
     switch ( currentIndex ) {
-    case 0: currentPalette = CRGBPalette16( CRGB( 224,   0,  32 ),
-                                            CRGB(   0,   0, 244 ),
-                                            CRGB( 128,   0, 128 ),
-                                            CRGB( 224,   0,  64 ) ); break;
-    case 1: currentPalette = CRGBPalette16( CRGB( 224,  16,   0 ),
-                                            CRGB( 192,  64,   0 ),
-                                            CRGB( 192, 128,   0 ),
-                                            CRGB( 240,  40,   0 ) ); break;
-    case 2: currentPalette = CRGBPalette16( CRGB::Aquamarine,
-                                            CRGB::Turquoise,
-                                            CRGB::Blue,
-                                            CRGB::DeepSkyBlue   ); break;
-    case 3: currentPalette = RainbowColors_p; break;
-    case 4: currentPalette = PartyColors_p; break;
-    case 5: currentPalette = CRGBPalette16( CRGB::LawnGreen ); break;
-  }
-
+        case 0: currentPalette = CRGBPalette16( CRGB( 224,   0,  32 ),
+                                                CRGB(   0,   0, 244 ),
+                                                CRGB( 128,   0, 128 ),
+                                                CRGB( 224,   0,  64 ) ); break;
+        case 1: currentPalette = CRGBPalette16( CRGB( 224,  16,   0 ),
+                                                CRGB( 192,  64,   0 ),
+                                                CRGB( 192, 128,   0 ),
+                                                CRGB( 240,  40,   0 ) ); break;
+        case 2: currentPalette = CRGBPalette16( CRGB::Aquamarine,
+                                                CRGB::Turquoise,
+                                                CRGB::Blue,
+                                                CRGB::DeepSkyBlue   ); break;
+        case 3: currentPalette = RainbowColors_p; break;
+        case 4: currentPalette = PartyColors_p; break;
+        case 5: currentPalette = CRGBPalette16( CRGB::LawnGreen ); break;
+    }
+#ifdef DEBUG
+    Serial.print(F("paletteSwitcher(): selected palette "));
+    Serial.println(currentIndex);
+#endif
+    if ( clockStatus == 0 ) {                             // only save selected palette to eeprom if clock is in normal running mode, not while in startup/setup/whatever
+        EEPROM.put(0, currentIndex);
+#ifdef NODEMCU
+        EEPROM.commit();
+#endif
+#ifdef DEBUG
+        Serial.print(F("paletteSwitcher(): saved index "));
+        Serial.print(currentIndex);
+        Serial.println(F(" to eeprom"));
+#endif
+    }
+    if ( currentIndex < paletteCount - 1 ) {
+        currentIndex++;
+    } else {
+        currentIndex = 0;
+    }
     if ( colorPreview ) {
-    previewMode();
-  }
+        previewMode();
+    }
+#ifdef DEBUG
+    Serial.println(F("paletteSwitcher() done"));
+#endif
 }
 
   void printTime() {
@@ -499,5 +566,187 @@ void paletteSwitcher() {
     Serial.print(day(tmp)); Serial.println(F(" (Y/M/D)"));
         Serial.println(F("-----------------------------------"));
   }
+
+
+void brightnessSwitcher() {
+    static uint8_t currentIndex = 0;
+    if ( clockStatus == 1 ) {                                                 // Clock is starting up, so load selected palette from eeprom...
+        uint8_t tmp = EEPROM.read(1);
+        if ( tmp >= 0 && tmp < 3 ) {
+            currentIndex = tmp;                                                   // 255 from eeprom would mean there's nothing been written yet, so checking range...
+        } else {
+            currentIndex = 0;                                                     // ...and default to 0 if returned value from eeprom is not 0 - 2
+        }
+#ifdef DEBUG
+        Serial.print(F("brightnessSwitcher(): loaded EEPROM value "));
+        Serial.println(tmp);
+#endif
+    }
+    switch ( currentIndex ) {
+        case 0: brightness = brightnessLevels[currentIndex]; break;
+        case 1: brightness = brightnessLevels[currentIndex]; break;
+        case 2: brightness = brightnessLevels[currentIndex]; break;
+    }
+#ifdef DEBUG
+    Serial.print(F("brightnessSwitcher(): selected brightness index "));
+    Serial.println(currentIndex);
+#endif
+    if ( clockStatus == 0 ) {                             // only save selected brightness to eeprom if clock is in normal running mode, not while in startup/setup/whatever
+        EEPROM.put(1, currentIndex);
+#ifdef NODEMCU
+        EEPROM.commit();
+#endif
+#ifdef DEBUG
+        Serial.print(F("brightnessSwitcher(): saved index "));
+        Serial.print(currentIndex);
+        Serial.println(F(" to eeprom"));
+#endif
+    }
+    if ( currentIndex < 2 ) {
+        currentIndex++;
+    } else {
+        currentIndex = 0;
+    }
+#ifdef DEBUG
+    Serial.println(F("brightnessSwitcher() done"));
+#endif
+}
+
+void colorModeSwitcher() {
+    static uint8_t currentIndex = 0;
+    if ( clockStatus == 1 ) {                                                 // Clock is starting up, so load selected palette from eeprom...
+        if ( colorMode != 0 ) return;                                           // 0 is default, if it's different on startup the config is set differently, so exit here
+        uint8_t tmp = EEPROM.read(3);
+        if ( tmp >= 0 && tmp < 2 ) {                                            // make sure tmp < 2 is increased if color modes are added in colorizeOutput()!
+            currentIndex = tmp;                                                   // 255 from eeprom would mean there's nothing been written yet, so checking range...
+        } else {
+            currentIndex = 0;                                                     // ...and default to 0 if returned value from eeprom is not 0 - 2
+        }
+#ifdef DEBUG
+        Serial.print(F("colorModeSwitcher(): loaded EEPROM value "));
+        Serial.println(tmp);
+#endif
+    }
+    colorMode = currentIndex;
+#ifdef DEBUG
+    Serial.print(F("colorModeSwitcher(): selected colorMode "));
+    Serial.println(currentIndex);
+#endif
+    if ( clockStatus == 0 ) {                             // only save selected colorMode to eeprom if clock is in normal running mode, not while in startup/setup/whatever
+        EEPROM.put(3, currentIndex);
+#ifdef NODEMCU
+        EEPROM.commit();
+#endif
+#ifdef DEBUG
+        Serial.print(F("colorModeSwitcher(): saved index "));
+        Serial.print(currentIndex);
+        Serial.println(F(" to eeprom"));
+#endif
+    }
+    if ( currentIndex < 1 ) {
+        currentIndex++;
+    } else {
+        currentIndex = 0;
+    }
+    if ( colorPreview ) {
+        previewMode();
+    }
+#ifdef DEBUG
+    Serial.println(F("colorModeSwitcher() done"));
+#endif
+}
+
+
+void displayModeSwitcher() {
+    static uint8_t currentIndex = 0;
+    if ( clockStatus == 1 ) {                                                 // Clock is starting up, so load selected palette from eeprom...
+        if ( displayMode != 0 ) return;                                         // 0 is default, if it's different on startup the config is set differently, so exit here
+        uint8_t tmp = EEPROM.read(2);
+        if ( tmp >= 0 && tmp < 2 ) {                                            // make sure tmp < 2 is increased if display modes are added
+            currentIndex = tmp;                                                   // 255 from eeprom would mean there's nothing been written yet, so checking range...
+        } else {
+            currentIndex = 0;                                                     // ...and default to 0 if returned value from eeprom is not 0 - 1 (24h/12h mode)
+        }
+#ifdef DEBUG
+        Serial.print(F("displayModeSwitcher(): loaded EEPROM value "));
+        Serial.println(tmp);
+#endif
+    }
+    displayMode = currentIndex;
+#ifdef DEBUG
+    Serial.print(F("displayModeSwitcher(): selected displayMode "));
+    Serial.println(currentIndex);
+#endif
+    if ( clockStatus == 0 ) {                             // only save selected colorMode to eeprom if clock is in normal running mode, not while in startup/setup/whatever
+        EEPROM.put(2, currentIndex);
+#ifdef NODEMCU
+        EEPROM.commit();
+#endif
+#ifdef DEBUG
+        Serial.print(F("displayModeSwitcher(): saved index "));
+        Serial.print(currentIndex);
+        Serial.println(F(" to eeprom"));
+#endif
+    }
+    if ( clockStatus == 0 ) {                             // show 12h/24h for 2 seconds after selected in normal run mode, don't show this on startup (status 1)
+        FastLED.clear();
+        unsigned long timer = millis();
+        while ( millis() - timer <= 2000 ) {
+            if ( currentIndex == 0 ) {
+                showChar(2, digitPositions[0], digitYPosition);
+                showChar(4, digitPositions[1], digitYPosition);
+                showChar(18, digitPositions[3], digitYPosition);
+            }
+            if ( currentIndex == 1 ) {
+                showChar(1, digitPositions[0], digitYPosition);
+                showChar(2, digitPositions[1], digitYPosition);
+                showChar(18, digitPositions[3], digitYPosition);
+            }
+            colorizeOutput(colorMode);
+            if ( millis() % 50 == 0 ) {
+                FastLED.show();
+            }
+#ifdef NODEMCU
+            yield();
+#endif
+        }
+    }
+    if ( currentIndex < 1 ) {
+        currentIndex++;
+    } else {
+        currentIndex = 0;
+    }
+#ifdef DEBUG
+    Serial.println(F("displayModeSwitcher() done"));
+#endif
+}
+
+void syncHelper() {
+  static unsigned long lastSync = millis();    // keeps track of the last time a sync attempt has been made
+  if ( millis() - lastSync < 86400000 && clockStatus != 1 ) return;   // only allow one ntp request once per day
+//connect to WiFi
+  Serial.printf("Connecting to %s ", ssid);
+  WiFi.begin(ssid, password);
+  unsigned long startTimer = millis();
+  uint8_t wlStatus = 0;
+  uint8_t counter = 6;
+  while ( wlStatus == 0 ) {
+  if ( WiFi.status() != WL_CONNECTED ) wlStatus = 0; else wlStatus = 1;
+    if ( millis() - startTimer >= 1000 ) {
+      FastLED.clear();
+      showChar(counter, digitPositions[3], digitYPosition);
+      FastLED.show();
+      if ( counter > 0 ) counter--; else wlStatus = 2;
+      startTimer = millis();
+    }
+  }
+  Serial.println(" CONNECTED");
+  timeClient.update();
+  time_t timeNTP = timeClient.getEpochTime();
+  setTime(timeNTP);
+  lastSync = millis();
+  WiFi.disconnect();
+}
+
 
 
